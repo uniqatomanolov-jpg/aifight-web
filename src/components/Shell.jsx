@@ -114,7 +114,7 @@ export function SiteHeader() {
                 key={item.to}
                 to={item.to}
                 onMouseEnter={() => sfx.tick()}
-                className={`rounded-lg px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] transition sm:px-3 sm:text-[11px] ${
+                className={`rounded-lg px-3 py-2 text-[13px] font-medium tracking-normal transition sm:text-sm ${
                   active
                     ? "bg-white/10 text-slate-100"
                     : "text-slate-500 hover:bg-white/[0.06] hover:text-slate-200"
@@ -222,7 +222,7 @@ export function SiteFooter() {
     <footer className="mt-16 border-t border-white/[0.06] px-4 py-8">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-600">
         <span>AiFight</span>
-        <span>Five models · €1,000 each · €100 daily cap</span>
+        <span>Five models · €1,000 each · no stake cap</span>
         <span className="sm:ml-auto">Every stake and thesis published before the result</span>
       </div>
       <p className="mx-auto mt-4 max-w-7xl text-[11px] leading-relaxed text-slate-700">

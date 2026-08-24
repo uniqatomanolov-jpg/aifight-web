@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, describeError, isSupabaseConfigured } from "../lib/supabaseClient";
 import { useArena, useAuthSession } from "../hooks/useArena";
+import PickPromptPanel from "./PickPromptPanel.jsx";
 import {
   SPORTS,
   getSport,
@@ -14,7 +15,6 @@ import {
 import {
   MODELS,
   MODEL_META,
-  DAILY_LIMIT,
   payoutFor,
   settlementPatch,
   validatePick,
@@ -785,7 +785,7 @@ function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
           <Pill tone="red">liquidated</Pill>
         ) : (
           <span className="font-mono text-[10px] text-slate-500">
-            {money(standing?.dailyRemaining ?? 0)} left today
+            {money(standing?.dailyRemaining ?? 0)} uncommitted
           </span>
         )}
         <span className="font-mono text-xs text-slate-600">{open ? "−" : "+"}</span>
@@ -800,6 +800,26 @@ function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
                 : "This fixture is closed. Reopen it on the match board to log picks."}
             </p>
           ) : null}
+
+          {/* Hand the card to the model, paste the answer back. Fills this
+              row only -- the operator still sets the stake and presses Log. */}
+          <PickPromptPanel
+            model={model}
+            event={event}
+            standing={standing}
+            disabled={locked}
+            onApply={(r) =>
+              set({
+                market: r.market,
+                pick: r.pick,
+                odds: r.odds === "" ? "" : String(r.odds),
+                fair_prob: r.fair_prob === "" ? "" : String(r.fair_prob),
+                confidence: r.confidence === "" ? "" : String(r.confidence),
+                reasoning: r.reasoning,
+                risk_factors: r.risk_factors,
+              })
+            }
+          />
 
           <div className="grid gap-2 sm:grid-cols-2">
             <Field label="Market">
@@ -846,7 +866,7 @@ function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
                 onChange={(e) => set({ odds: e.target.value })}
               />
             </Field>
-            <Field label="Stake" hint={`max ${money(standing?.dailyRemaining ?? 0)}`}>
+            <Field label="Stake" hint={`max ${money(standing?.dailyRemaining ?? 0)} uncommitted`}>
               <input
                 className={`${INPUT} font-mono`}
                 type="number"
@@ -1205,19 +1225,21 @@ function StandingsStrip({ fighters }) {
             {signedMoney(f.profit)} &middot; ROI {percent(f.roi)}
           </p>
 
-          {/* Daily budget meter */}
+          {/* Exposure meter. Replaced the daily budget meter when the cap was
+              lifted: with nothing capping a stake, the number the operator
+              needs before logging another bet is how much is already at risk. */}
           <div className="mt-2">
             <div className="h-1 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full rounded-full transition-all"
                 style={{
-                  width: `${Math.min(100, f.dailyUsedPct)}%`,
-                  backgroundColor: f.dailyUsedPct >= 100 ? "#f43f5e" : f.accent,
+                  width: `${Math.max(2, Math.min(100, (f.exposure ?? 0) * 100))}%`,
+                  backgroundColor: (f.exposure ?? 0) >= 0.6 ? "#f43f5e" : f.accent,
                 }}
               />
             </div>
             <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-slate-600">
-              {money(f.stakedToday)} / {money(DAILY_LIMIT)} today
+              {money(f.pendingStake)} at risk &middot; {money(f.stakedToday)} today
             </p>
           </div>
 

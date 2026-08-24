@@ -139,7 +139,7 @@ export function StandingsPage() {
               key={row.model}
               to={`/fighter/${row.model.toLowerCase()}`}
               style={fighterVars(row.model)}
-              className="fx-card fx-card--muted fx-press flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap"
+              className="fx-term fx-press flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap"
             >
               <span className="font-mono text-sm tabular-nums text-slate-600">{index + 1}</span>
               <span className="fx-chip h-10 w-10 font-mono text-xs">{meta.code}</span>
@@ -356,7 +356,7 @@ export function FightersPage() {
   return (
     <PageShell
       title="The fighters"
-      subtitle="Five models, €1,000 each, €100 a day. Same board, same prices, different theses."
+      subtitle="Five models, €1,000 each, staked freely. Same board, same prices, different theses."
       loading={loading}
       error={error}
     >
@@ -368,7 +368,7 @@ export function FightersPage() {
               key={row.model}
               to={`/fighter/${row.model.toLowerCase()}`}
               style={fighterVars(row.model)}
-              className="fx-card fx-card--muted fx-press block p-5"
+              className="fx-term fx-press block p-5"
             >
               <div className="flex items-center gap-3">
                 <span className="fx-chip h-11 w-11 font-mono text-sm">{meta.code}</span>

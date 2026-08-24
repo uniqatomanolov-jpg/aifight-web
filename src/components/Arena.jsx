@@ -4,7 +4,6 @@ import { sportLabel, sportAccent, marketLabel } from "../lib/sports";
 import { fighterVars, streakOf } from "../lib/fighters.js";
 import {
   MODEL_META,
-  DAILY_LIMIT,
   CHALLENGE_TARGET,
   STARTING_BANKROLL,
   MODELS,
@@ -358,8 +357,8 @@ function RaceTracker({ fighters, challenge }) {
         </p>
 
         <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-400">
-          {wholeMoney(STARTING_BANKROLL)} each, {wholeMoney(DAILY_LIMIT)} a day, every thesis published before
-          the result.{" "}
+          {wholeMoney(STARTING_BANKROLL)} each, staked freely, every thesis published before the
+          result.{" "}
           {margin !== null && margin > 0 ? (
             <span className="text-slate-200">
               {leader.model} leads {runnerUp.model} by {money(margin)}.
@@ -450,11 +449,13 @@ function Record({ fighter }) {
  */
 function DailyBudget({ fighter }) {
   const f = fighter;
+  const exposurePct = Math.min(100, (f.exposure ?? 0) * 100);
 
-  if (!(f.stakedToday > 0)) {
+  if (!(f.pendingStake > 0)) {
     return (
       <p className={`${MONO} mt-4 text-[10px] uppercase tracking-wider text-slate-700`}>
-        No stake today · {money(f.dailyRemaining)} available
+        {f.stakedToday > 0 ? `${money(f.stakedToday)} staked today · ` : ""}
+        Nothing open
       </p>
     );
   }
@@ -463,19 +464,19 @@ function DailyBudget({ fighter }) {
     <div className="mt-4">
       <div className="flex items-center justify-between">
         <p className={`${MONO} text-[9px] uppercase tracking-[0.14em] text-slate-600`}>
-          Daily budget
+          Exposure
         </p>
         <p className={`${MONO} text-[10px] text-slate-500`}>
-          {money(f.stakedToday)} / {money(DAILY_LIMIT)}
+          {money(f.pendingStake)} of {money(f.bankroll)}
         </p>
       </div>
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
         <div
           className={
-            f.dailyUsedPct >= 100 ? "h-full rounded-full bg-rose-500" : "fx-fill h-full rounded-full"
+            exposurePct >= 60 ? "h-full rounded-full bg-rose-500" : "fx-fill h-full rounded-full"
           }
           style={{
-            width: `${Math.min(100, f.dailyUsedPct)}%`,
+            width: `${Math.max(2, exposurePct)}%`,
             transition: "width .5s cubic-bezier(.16,1,.3,1)",
           }}
         />

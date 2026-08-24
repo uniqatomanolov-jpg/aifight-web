@@ -70,7 +70,10 @@ export function buildPickPrompt(event, markets = [], options = {}) {
   if (model) lines.push(`YOU ARE: ${model}`);
   if (bankroll != null) lines.push(`YOUR BANKROLL: EUR ${Number(bankroll).toFixed(2)}`);
   if (dailyRemaining != null) {
-    lines.push(`REMAINING TODAY: EUR ${Number(dailyRemaining).toFixed(2)}`);
+    // Named for what it is rather than for a cap that no longer exists: the
+    // figure is uncommitted funds, so a model reading "remaining today" would
+    // size its stake against a ceiling that is not there.
+    lines.push(`AVAILABLE TO STAKE: EUR ${Number(dailyRemaining).toFixed(2)}`);
   }
   if (model || bankroll != null) lines.push("");
 
@@ -241,3 +244,42 @@ export function parsePickReply(text, context = {}) {
 
 /** Convenience: is this a model we actually run? */
 export const isKnownModel = (name) => MODELS.includes(name);
+
+/* -------------------------------------------------------------------- */
+/* Adapter                                                              */
+/* -------------------------------------------------------------------- */
+
+/**
+ * Turn a stored event into the market list the prompt builder wants.
+ *
+ * Events carry their prices as `event.odds`, keyed by market:
+ *
+ *   { "1x2": { line: null, prices: { "Malaga CF": 2.37, "Draw": 3.00 } } }
+ *
+ * The same matrix drives the admin's market and selection dropdowns, so a
+ * prompt built from it can only ever offer selections that already exist on
+ * the published card -- which is what makes the parser's rejection of unknown
+ * picks meaningful rather than theatrical.
+ *
+ * Prices at or below 1.00 are dropped. A blank box in the odds matrix means
+ * "not offered", and offering a model a selection at 0.00 invites a pick that
+ * `validatePick` will then refuse.
+ */
+export function marketsFromEvent(event, labelFor = (_sport, key) => key) {
+  const matrix = event?.odds ?? {};
+
+  return Object.entries(matrix)
+    .map(([market, draft]) => {
+      const selections = Object.entries(draft?.prices ?? {})
+        .map(([pick, price]) => ({ pick, odds: Number(price) }))
+        .filter((s) => Number.isFinite(s.odds) && s.odds > 1);
+
+      return {
+        market,
+        label: labelFor(event?.sport, market),
+        line: draft?.line ?? null,
+        selections,
+      };
+    })
+    .filter((m) => m.selections.length > 0);
+}

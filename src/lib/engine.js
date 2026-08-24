@@ -56,7 +56,26 @@ export const MODELS = FIGHTER_MODELS;
 export const MODEL_META = FIGHTERS;
 
 export const STARTING_BANKROLL = 1000;
-export const DAILY_LIMIT = 100;
+/**
+ * The per-fighter daily stake ceiling, or `null` for no ceiling.
+ *
+ * Set to null: models stake freely, bounded only by what they actually have.
+ * The cap was never an event limit -- it capped money per day, not fixtures --
+ * and with a ten-event card across several sports it was forcing every stake
+ * into a ~10 euro box.
+ *
+ * WHAT STILL BINDS. `available` (bankroll minus stake already committed to
+ * open bets) is a hard floor and is NOT part of this switch. Removing it would
+ * let a fighter stake money it does not have, and every bankroll on the site
+ * would stop reconciling.
+ *
+ * Restoring a cap is one line: set this to a number. Every consumer reads
+ * `hasDailyLimit` rather than testing the constant itself, so nothing else
+ * needs to change.
+ */
+export const DAILY_LIMIT = null;
+
+export const hasDailyLimit = Number.isFinite(DAILY_LIMIT) && DAILY_LIMIT > 0;
 export const CHALLENGE_TARGET = 1_000_000;
 
 /** The arena's operating timezone. Defines where one betting day ends. */
@@ -426,9 +445,14 @@ export function standingFor(model, allBets, { today = dayKey() } = {}) {
   // cannot fund.
   const liquidated = bankroll <= 0;
   const available = liquidated ? 0 : Math.max(0, round2(bankroll - pendingStake));
+  // What this fighter may stake right now. With a cap in force that is the
+  // lesser of the day's remainder and uncommitted funds; without one it is
+  // simply uncommitted funds.
   const dailyRemaining = liquidated
     ? 0
-    : Math.max(0, round2(Math.min(DAILY_LIMIT - stakedToday, available)));
+    : hasDailyLimit
+      ? Math.max(0, round2(Math.min(DAILY_LIMIT - stakedToday, available)))
+      : available;
 
   return {
     model,
@@ -460,7 +484,12 @@ export function standingFor(model, allBets, { today = dayKey() } = {}) {
     betCount: bets.length,
     stakedToday,
     dailyRemaining,
-    dailyUsedPct: Math.min(100, (stakedToday / DAILY_LIMIT) * 100),
+    // Null when uncapped: there is no denominator, and rendering 0% would
+    // read as "nothing staked" rather than "no limit".
+    dailyUsedPct: hasDailyLimit ? Math.min(100, (stakedToday / DAILY_LIMIT) * 100) : null,
+    // The risk figure that matters once nothing caps a stake: how much of the
+    // bankroll is currently riding on unsettled bets.
+    exposure: bankroll > 0 ? pendingStake / bankroll : 0,
     liquidated,
     liquidatedRound: liquidatedAt?.round ?? null,
     // Progress toward the headline narrative.
@@ -614,14 +643,18 @@ export function validatePick(draft, { standing, existingBets = [] } = {}) {
   if (odds > 1000) problems.push("Odds above 1000 are almost certainly a typo.");
 
   if (!(stake > 0)) problems.push("Stake must be greater than zero.");
-  if (stake > DAILY_LIMIT) problems.push(`Stake exceeds the €${DAILY_LIMIT} daily limit.`);
+  if (hasDailyLimit && stake > DAILY_LIMIT) {
+    problems.push(`Stake exceeds the €${DAILY_LIMIT} daily limit.`);
+  }
 
   if (standing) {
     if (standing.liquidated) {
       problems.push(`${draft.model} is liquidated and cannot bet.`);
     } else if (stake > standing.dailyRemaining) {
       problems.push(
-        `Only €${standing.dailyRemaining.toFixed(2)} left in ${draft.model}'s budget today.`
+        hasDailyLimit
+          ? `Only €${standing.dailyRemaining.toFixed(2)} left in ${draft.model}'s budget today.`
+          : `${draft.model} has only €${standing.dailyRemaining.toFixed(2)} uncommitted.`
       );
     }
   }
