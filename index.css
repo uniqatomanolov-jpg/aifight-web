@@ -1,0 +1,105 @@
+/*
+ * Fonts first: an @import must precede every other rule, including
+ * Tailwind's directives, or the browser discards it silently.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,600..900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    /* The obsidian ground. Referenced by name so the value lives in one
+       place rather than being retyped as #050508 across components. */
+    /* True black. On OLED these pixels are switched off entirely, which is
+       what gives the panel edges their depth -- #050508 is a very dark grey
+       and still lights the panel. */
+    --obsidian: #000000;
+    --panel: #0A0B0F;
+    --panel-raised: #12141C;
+  }
+
+  html {
+    background-color: var(--obsidian);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* Three stacked layers, all static so nothing repaints on scroll:
+       a fine 1px grid for structure, a wider grid for rhythm, and a low-alpha
+       SVG noise tile that stops large black areas from banding on cheap
+       panels. Fixed attachment keeps the grid still while content moves,
+       which reads as a terminal rather than wallpaper. */
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.032'/%3E%3C/svg%3E");
+    background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px, 140px 140px;
+    background-attachment: fixed;
+    margin: 0;
+    background-color: var(--obsidian);
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * Number inputs: hide the spinners. The stake and odds fields are typed,
+   * and a stray scroll over a focused number input silently changes a bet.
+   */
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* The date picker's indicator is black-on-black by default. */
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    cursor: pointer;
+  }
+
+  /* Dark scrollbars, so a scrolling panel does not flash a white gutter. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* A visible focus ring everywhere. The admin is used at speed and by
+     keyboard, and the default ring is invisible on this background. */
+  :focus-visible {
+    outline: 2px solid rgb(52 211 153 / 0.7);
+    outline-offset: 2px;
+  }
+
+  /* Respect a reduced-motion preference. The progress bars and pulses are
+     decorative and none of them carry information on their own. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

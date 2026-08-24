@@ -1,0 +1,40 @@
+name: CI
+
+# Runs on every push and every pull request. The build step matters as much
+# as the tests: Tailwind purges classes it cannot see in the content globs,
+# so a class that works in dev can vanish in production. A green build is
+# the only proof that did not happen.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci` not `npm install`: it installs exactly what the lockfile
+      # says and fails loudly if package.json and the lockfile disagree.
+      - run: npm ci
+
+      # Lint first, and specifically for `no-undef`. A missing import is
+      # invisible to the bundler -- Rollup treats the unresolved name as a
+      # global, the build goes green, and the page dies at runtime. That
+      # shipped once; this step is why it will not ship again.
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run build
+
+      # The engine is pure functions with no DOM and no network, so it needs
+      # no secrets. If a future test needs Supabase, add the two VITE_
+      # variables as repository secrets rather than relying on the baked-in
+      # production defaults, or CI will silently exercise the live database.
