@@ -34,6 +34,22 @@ import {
 const MONO = "font-mono tabular-nums";
 const GLASS = "fx-glass-cheap rounded-2xl border border-white/10";
 
+/**
+ * Whole euros, for headline figures only.
+ *
+ * engine.js `money()` is fixed at two decimals, which is right everywhere a
+ * figure is a real balance -- a bankroll of EUR 1,170.50 must not round to
+ * 1,171 or the ledger stops adding up. But the target is a round number in a
+ * headline, and "EUR 1,000,000.00" reads as a rounding error rather than a
+ * prize. Never use this for a bankroll, a stake or a profit.
+ */
+const EURO_WHOLE = new Intl.NumberFormat("en-IE", {
+  style: "currency",
+  currency: "EUR",
+  maximumFractionDigits: 0,
+});
+const wholeMoney = (n) => EURO_WHOLE.format(Number(n) || 0);
+
 /* -------------------------------------------------------------------- */
 /* Motion primitives                                                    */
 /* -------------------------------------------------------------------- */
@@ -312,11 +328,23 @@ function RaceTracker({ fighters, challenge }) {
       />
 
       <div className="relative mx-auto max-w-5xl px-4 pb-10 pt-14 sm:pt-20">
-        <p className={`${MONO} text-center text-[10px] uppercase tracking-[0.4em] text-slate-500`}>
-          The {money(CHALLENGE_TARGET)} Challenge
+        <p className={`${MONO} text-center text-[10px] uppercase tracking-[0.4em] text-emerald-400`}>
+          Five models · One bankroll each · No human picks
         </p>
 
-        <h1 className="af-display mt-4 text-center text-5xl leading-[0.95] text-slate-50 sm:text-7xl">
+        {/*
+          The permanent thing is the H1, the live thing sits under it.
+          A dynamic H1 indexes the page as "Kimi is winning", which means
+          nothing to anyone searching, and the name is what a first-time
+          visitor needs in order to understand the site at all.
+        */}
+        <h1 className="af-display mt-5 text-center text-5xl leading-[0.92] text-slate-50 sm:text-7xl">
+          The <span className="text-emerald-400">{wholeMoney(CHALLENGE_TARGET)}</span> Challenge
+        </h1>
+
+        {/* The live state. Second in the hierarchy, first in the eye, because
+            it is the only line on the page that changes. */}
+        <p className="af-display mt-5 text-center text-2xl leading-tight text-slate-200 sm:text-4xl">
           {winning ? (
             <>
               <span style={{ color: MODEL_META[leader.model]?.accent }}>{leader.model}</span> is
@@ -327,19 +355,16 @@ function RaceTracker({ fighters, challenge }) {
           ) : (
             "The fighters are reading the card."
           )}
-        </h1>
+        </p>
 
-        <p className="mx-auto mt-5 max-w-xl text-center text-sm leading-relaxed text-slate-400">
-          Five models. {money(STARTING_BANKROLL)} each, {money(DAILY_LIMIT)} a day, no human picks.{" "}
+        <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-400">
+          {money(STARTING_BANKROLL)} each, {money(DAILY_LIMIT)} a day, every thesis published before
+          the result.{" "}
           {margin !== null && margin > 0 ? (
             <span className="text-slate-200">
               {leader.model} leads {runnerUp.model} by {money(margin)}.
             </span>
-          ) : (
-            <span className="text-slate-200">
-              Every stake and thesis is published before the result.
-            </span>
-          )}
+          ) : null}
         </p>
 
         {/* The race */}
