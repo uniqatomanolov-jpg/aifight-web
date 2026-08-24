@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules
+dist
+dist-ssr
+.vite
+
+# Environment. The .env.example is committed; nothing else here is.
+.env
+.env.local
+.env.*.local
+
+# Deploy tooling
+.vercel
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Release archives. These are build artefacts -- a repo that contains a zip
+# of itself has two sources of truth and they will drift.
+*.zip
