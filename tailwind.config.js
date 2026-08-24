@@ -10,10 +10,16 @@ export default {
         // `font-mono` is the arena's voice, so it is bound explicitly rather
         // than left to whatever monospace the OS picks.
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
-        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        sans: ["Space Grotesk", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        // The display voice. Use via the .af-display class, which also sets
+        // the width axis and tracking -- `font-display` alone gives you
+        // Archivo at its default width, which is not the point of using it.
+        display: ["Archivo", "Archivo Black", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
-        obsidian: "#050508",
+        obsidian: "#000000",
+        panel: "#0A0B0F",
+        raised: "#12141C",
       },
     },
   },

@@ -2,7 +2,7 @@
  * Fonts first: an @import must precede every other rule, including
  * Tailwind's directives, or the browser discards it silently.
  */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,600..900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -13,7 +13,12 @@
     color-scheme: dark;
     /* The obsidian ground. Referenced by name so the value lives in one
        place rather than being retyped as #050508 across components. */
-    --obsidian: #050508;
+    /* True black. On OLED these pixels are switched off entirely, which is
+       what gives the panel edges their depth -- #050508 is a very dark grey
+       and still lights the panel. */
+    --obsidian: #000000;
+    --panel: #0A0B0F;
+    --panel-raised: #12141C;
   }
 
   html {
@@ -22,9 +27,22 @@
   }
 
   body {
+    /* Three stacked layers, all static so nothing repaints on scroll:
+       a fine 1px grid for structure, a wider grid for rhythm, and a low-alpha
+       SVG noise tile that stops large black areas from banding on cheap
+       panels. Fixed attachment keeps the grid still while content moves,
+       which reads as a terminal rather than wallpaper. */
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+      linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.032'/%3E%3C/svg%3E");
+    background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px, 140px 140px;
+    background-attachment: fixed;
     margin: 0;
     background-color: var(--obsidian);
-    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

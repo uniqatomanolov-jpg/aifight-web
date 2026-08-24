@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useArena } from "../hooks/useArena";
 import { sportLabel, sportAccent, marketLabel } from "../lib/sports";
+import { fighterVars, streakOf } from "../lib/fighters.js";
 import {
   MODEL_META,
   DAILY_LIMIT,
@@ -14,160 +15,377 @@ import {
   percentPlain,
   ratio,
   expectedValue,
+  profitOf,
 } from "../lib/engine";
 
 /* ==================================================================== */
 /* THE PUBLIC ARENA                                                     */
 /* ==================================================================== */
 /*
- * Deep obsidian, glass, monospace. Five fighters, one ledger, and the
- * thesis behind every pick readable by anyone who wants to check the
- * working.
+ * The page answers one question above the fold: who is winning, and by how
+ * much. The combined bankroll, the target and the ledger are all
+ * subordinate to that.
+ *
+ * Fighter identity comes from styles/fighters.css via fighterVars(). Do not
+ * reintroduce a local grey-glass constant for fighter surfaces -- five cards
+ * sharing one border colour is the thing this file exists to undo.
  */
 
-const GLASS = "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm";
 const MONO = "font-mono tabular-nums";
+const GLASS = "fx-glass-cheap rounded-2xl border border-white/10";
 
 /* -------------------------------------------------------------------- */
-/* Hero - the €1,000,000 challenge tracker                              */
+/* Motion primitives                                                    */
+/* -------------------------------------------------------------------- */
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return undefined;
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return reduced;
+}
+
+/**
+ * Animate a figure toward its new value.
+ *
+ * Deliberately NOT a page-load flourish: the ramp starts from the first
+ * value seen, so the initial render is static and only a genuine change --
+ * a bet settling over the realtime channel -- rolls. A count-up on load is
+ * a loading spinner pretending to be data.
+ */
+function useCountUp(target, { duration = 850 } = {}) {
+  const reduced = usePrefersReducedMotion();
+  const [value, setValue] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    if (reduced || !Number.isFinite(target)) {
+      fromRef.current = target;
+      setValue(target);
+      return undefined;
+    }
+
+    const from = fromRef.current;
+    if (from === target) return undefined;
+
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - (1 - t) ** 3;
+      const current = from + (target - from) * eased;
+      fromRef.current = t < 1 ? current : target;
+      setValue(t < 1 ? current : target);
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, duration, reduced]);
+
+  return value;
+}
+
+/** Green or red wash when a figure moves. Cleared once the animation ends. */
+function useFlash(value) {
+  const previous = useRef(value);
+  const [className, setClassName] = useState("");
+
+  useEffect(() => {
+    if (previous.current === value) return undefined;
+    setClassName(value > previous.current ? "fx-flash-up" : "fx-flash-down");
+    previous.current = value;
+    const id = setTimeout(() => setClassName(""), 760);
+    return () => clearTimeout(id);
+  }, [value]);
+
+  return className;
+}
+
+/** Reveal on first scroll into view. One-shot; the observer disconnects. */
+function Reveal({ children, delay = 0, className = "" }) {
+  const reduced = usePrefersReducedMotion();
+  const ref = useRef(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    if (reduced) {
+      setShown(true);
+      return undefined;
+    }
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      setShown(true);
+      return undefined;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setShown(true);
+        io.disconnect();
+      },
+      { rootMargin: "0px 0px -10% 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [reduced]);
+
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : "translateY(14px)",
+        transition: reduced
+          ? undefined
+          : `opacity .55s cubic-bezier(.16,1,.3,1) ${delay}ms, transform .55s cubic-bezier(.16,1,.3,1) ${delay}ms`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------- */
+/* Streaks                                                              */
 /* -------------------------------------------------------------------- */
 
 /**
- * Progress toward €1,000,000, on a logarithmic scale.
- *
- * A linear bar is the obvious choice and it is useless here: €5,000 of
- * €1,000,000 is half a percent, which renders as an empty bar for the
- * first several hundred percent of actual growth. The challenge is about
- * multiplying a bankroll, and a log scale is what shows multiplication --
- * each labelled milestone is a 10x step, so the bar moves visibly for
- * every doubling instead of only near the finish.
- *
- * The scale is labelled on screen. An unlabelled log axis flatters the
- * numbers, and this is a scoreboard, not a pitch deck.
+ * standingFor() returns bets oldest-first; streakOf() reads newest-first.
+ * Reversing here rather than changing either signature keeps the engine's
+ * chronological order intact for the equity curve, which depends on it.
  */
-function logProgress(value, floor = STARTING_BANKROLL * MODELS.length, ceiling = CHALLENGE_TARGET) {
-  if (!(value > 0)) return 0;
-  const v = Math.max(value, floor);
-  const pct = ((Math.log10(v) - Math.log10(floor)) / (Math.log10(ceiling) - Math.log10(floor))) * 100;
-  return Math.max(0, Math.min(100, pct));
+function useStreak(fighter) {
+  return useMemo(
+    () => streakOf([...(fighter.bets ?? [])].reverse(), profitOf),
+    [fighter.bets]
+  );
 }
 
-function ChallengeTracker({ challenge }) {
-  const milestones = [10_000, 100_000, CHALLENGE_TARGET];
-  const width = logProgress(challenge.total);
+function StreakBadge({ streak }) {
+  if (!streak || streak.state === "neutral") return null;
+  const hot = streak.state === "hot";
+  return (
+    <span
+      title={`${streak.run} in a row across ${streak.sample} settled bets`}
+      className={`${MONO} rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] ${
+        hot
+          ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+          : "border-sky-400/30 bg-sky-400/10 text-sky-300"
+      }`}
+    >
+      {hot ? `Hot ${streak.run}` : `Cold ${streak.run}`}
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------- */
+/* Hero -- the race                                                     */
+/* -------------------------------------------------------------------- */
+
+/**
+ * The lane scale.
+ *
+ * Anchored to the field, not to CHALLENGE_TARGET. Against EUR 1,000,000
+ * every fighter is a sub-pixel sliver and the board reads as five identical
+ * rows; against [lowest bankroll, highest bankroll] the same data reads as a
+ * race. Floor and ceiling both clamp to STARTING_BANKROLL so the launch line
+ * stays on the axis whether the field is collectively up or down.
+ *
+ * Bars start at 4% rather than 0 so last place is still a visible object.
+ */
+function raceScale(fighters) {
+  if (fighters.length === 0) {
+    return { lo: STARTING_BANKROLL, hi: STARTING_BANKROLL, at: () => 4 };
+  }
+  const values = fighters.map((f) => f.bankroll);
+  const lo = Math.min(STARTING_BANKROLL, ...values);
+  const hi = Math.max(STARTING_BANKROLL, ...values);
+  const span = hi - lo || 1;
+  const at = (v) => 4 + Math.max(0, Math.min(1, (v - lo) / span)) * 96;
+  return { lo, hi, at };
+}
+
+function RaceLane({ fighter, scale, leader, index }) {
+  const f = fighter;
+  const streak = useStreak(f);
+  const animated = useCountUp(f.bankroll);
+  const flash = useFlash(f.bankroll);
+  const reduced = usePrefersReducedMotion();
+
+  const width = scale.at(f.bankroll);
+  const gap = leader && f.model !== leader.model ? f.bankroll - leader.bankroll : null;
+  const showLaunchLine = scale.lo < STARTING_BANKROLL && scale.hi > STARTING_BANKROLL;
+
+  return (
+    <div
+      style={fighterVars(f.model)}
+      className={`grid grid-cols-[minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 sm:grid-cols-[10rem_minmax(0,1fr)_7rem] sm:gap-x-4 ${flash} ${
+        f.liquidated ? "opacity-40 grayscale-[0.7]" : ""
+      }`}
+    >
+      {/* Identity */}
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={`${MONO} w-3 shrink-0 text-[11px] text-slate-600`}>{f.rank}</span>
+        <span className="fx-chip h-6 w-6 shrink-0 text-[8px]">{f.code}</span>
+        <span className="truncate text-sm font-semibold text-slate-100">{f.model}</span>
+        <span className="ml-auto sm:hidden">
+          <StreakBadge streak={streak} />
+        </span>
+      </div>
+
+      {/* Lane */}
+      <div className="relative h-6">
+        <div className="absolute inset-0 rounded-md bg-white/[0.045]" />
+
+        {showLaunchLine ? (
+          <div
+            aria-hidden="true"
+            title="Launch bankroll"
+            className="absolute inset-y-0 z-10 w-px bg-white/25"
+            style={{ left: `${scale.at(STARTING_BANKROLL)}%` }}
+          />
+        ) : null}
+
+        <div
+          className="fx-fill absolute inset-y-0 left-0 rounded-md"
+          style={{
+            width: `${width}%`,
+            transition: reduced ? undefined : "width .8s cubic-bezier(.16,1,.3,1)",
+            transitionDelay: reduced ? undefined : `${index * 70}ms`,
+          }}
+        />
+
+        {/* On mobile the figure rides the lane, since there is no third column. */}
+        <span
+          className={`${MONO} absolute right-2 top-1/2 z-10 -translate-y-1/2 text-[11px] font-bold text-slate-50 sm:hidden`}
+        >
+          {money(animated)}
+        </span>
+      </div>
+
+      {/* Figures */}
+      <div className="hidden text-right sm:block">
+        <p className={`${MONO} text-sm font-bold text-slate-50`}>{money(animated)}</p>
+        <p className={`${MONO} text-[10px] ${gap === null ? "text-amber-400" : "text-slate-600"}`}>
+          {gap === null ? "the pace" : signedMoney(gap)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RaceTracker({ fighters, challenge }) {
+  const living = fighters.filter((f) => !f.liquidated);
+  const leader = living[0] ?? fighters[0] ?? null;
+  const runnerUp = living[1] ?? null;
+  const scale = useMemo(() => raceScale(fighters), [fighters]);
+
   const netProfit = challenge.total - challenge.startedFrom;
-  const behind = netProfit < 0;
-  const deficitPct = behind
-    ? Math.min(100, (Math.abs(netProfit) / challenge.startedFrom) * 100)
-    : 0;
+  const margin = leader && runnerUp ? leader.bankroll - runnerUp.bankroll : null;
+  const winning = Boolean(leader && leader.profit > 0);
 
   return (
     <section className="relative overflow-hidden">
-      {/* Ambient wash. Pure decoration, kept behind the content and out of
-          the accessibility tree. */}
+      {/* Ambient wash, tinted by whoever is in front. Decoration only. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-50"
+        className="pointer-events-none absolute inset-0 opacity-60"
         style={{
-          background:
-            "radial-gradient(900px 380px at 50% -10%, rgba(16,185,129,0.16), transparent 70%)",
+          background: `radial-gradient(820px 340px at 50% -12%, ${
+            leader ? (MODEL_META[leader.model]?.glow ?? "rgba(16,185,129,0.16)") : "rgba(16,185,129,0.16)"
+          }, transparent 70%)`,
+          transition: "background .8s ease",
         }}
       />
 
-      <div className="relative mx-auto max-w-6xl px-4 pb-10 pt-16 text-center sm:pt-24">
-        <p className={`${MONO} text-[10px] uppercase tracking-[0.45em] text-emerald-400`}>
-          Five models · One bankroll each · No human picks
+      <div className="relative mx-auto max-w-5xl px-4 pb-10 pt-14 sm:pt-20">
+        <p className={`${MONO} text-center text-[10px] uppercase tracking-[0.4em] text-slate-500`}>
+          The {money(CHALLENGE_TARGET)} Challenge
         </p>
 
-        <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-50 sm:text-6xl">
-          The <span className="text-emerald-400">€1,000,000</span> Challenge
+        <h1 className="af-display mt-4 text-center text-5xl leading-[0.95] text-slate-50 sm:text-7xl">
+          {winning ? (
+            <>
+              <span style={{ color: MODEL_META[leader.model]?.accent }}>{leader.model}</span> is
+              winning.
+            </>
+          ) : leader ? (
+            "Nobody is winning."
+          ) : (
+            "The fighters are reading the card."
+          )}
         </h1>
 
-        <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-slate-400 sm:text-base">
-          Claude, Grok, ChatGPT, Gemini and Kimi each started with{" "}
-          <span className="text-slate-200">{money(STARTING_BANKROLL)}</span> and a{" "}
-          <span className="text-slate-200">{money(DAILY_LIMIT)}</span> daily ceiling. Every stake,
-          every price and every thesis is published below. Hit zero and you are out.
+        <p className="mx-auto mt-5 max-w-xl text-center text-sm leading-relaxed text-slate-400">
+          Five models. {money(STARTING_BANKROLL)} each, {money(DAILY_LIMIT)} a day, no human picks.{" "}
+          {margin !== null && margin > 0 ? (
+            <span className="text-slate-200">
+              {leader.model} leads {runnerUp.model} by {money(margin)}.
+            </span>
+          ) : (
+            <span className="text-slate-200">
+              Every stake and thesis is published before the result.
+            </span>
+          )}
         </p>
 
-        <div className={`${GLASS} mx-auto mt-10 max-w-3xl p-6`}>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="text-left">
-              <p className={`${MONO} text-[10px] uppercase tracking-[0.2em] text-slate-500`}>
-                Combined bankroll
-              </p>
-              <p className={`${MONO} text-3xl font-bold text-slate-50 sm:text-4xl`}>
-                {money(challenge.total)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className={`${MONO} text-[10px] uppercase tracking-[0.2em] text-slate-500`}>
-                Net since launch
-              </p>
-              <p
-                className={`${MONO} text-xl font-bold ${
-                  netProfit > 0 ? "text-emerald-400" : netProfit < 0 ? "text-rose-400" : "text-slate-400"
-                }`}
-              >
-                {signedMoney(netProfit)}
-              </p>
-            </div>
+        {/* The race */}
+        <div className={`${GLASS} mx-auto mt-10 p-3 sm:p-5`}>
+          <div className="mb-2 hidden items-center justify-between px-2 sm:flex">
+            <p className={`${MONO} text-[9px] uppercase tracking-[0.24em] text-slate-600`}>
+              Bankroll
+            </p>
+            <p className={`${MONO} text-[9px] uppercase tracking-[0.24em] text-slate-600`}>
+              Gap to leader
+            </p>
           </div>
 
-          <div className="relative mt-6">
-            <div className="h-2.5 overflow-hidden rounded-full bg-white/[0.06]">
-              {/*
-                Below the launch capital the log scale pins to zero, which
-                would render an empty track and read as "no data". A
-                collectively losing field is information, so it gets its own
-                bar: the deficit as a share of what was staked at launch,
-                in red, growing leftward-to-right as things get worse.
-              */}
-              {behind ? (
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-rose-600 to-rose-400 transition-all duration-700"
-                  style={{ width: `${deficitPct}%` }}
-                />
-              ) : (
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-700"
-                  style={{ width: `${Math.max(width, 1.5)}%` }}
-                />
-              )}
-            </div>
-
-            {/* Milestone ticks */}
-            <div className="relative mt-2 h-4">
-              {milestones.map((m) => (
-                <span
-                  key={m}
-                  className={`${MONO} absolute -translate-x-1/2 text-[9px] uppercase tracking-wider ${
-                    challenge.total >= m ? "text-emerald-400" : "text-slate-600"
-                  }`}
-                  style={{ left: `${logProgress(m)}%` }}
-                >
-                  €{m >= 1_000_000 ? "1M" : `${m / 1000}k`}
-                </span>
-              ))}
-            </div>
+          <div className="space-y-1">
+            {fighters.map((f, i) => (
+              <RaceLane key={f.model} fighter={f} scale={scale} leader={leader} index={i} />
+            ))}
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 border-t border-white/10 pt-4">
-            <span className={`${MONO} text-[10px] uppercase tracking-wider text-slate-500`}>
-              {percentPlain(challenge.total / CHALLENGE_TARGET, 3)} of target
-            </span>
-            <span className={`${MONO} text-[10px] uppercase tracking-wider text-emerald-400`}>
-              {challenge.alive} alive
-            </span>
-            {challenge.liquidated > 0 ? (
-              <span className={`${MONO} text-[10px] uppercase tracking-wider text-rose-400`}>
-                {challenge.liquidated} liquidated
-              </span>
-            ) : null}
-            <span className={`${MONO} text-[10px] uppercase tracking-wider text-slate-600`}>
-              {behind ? `${percentPlain(deficitPct / 100, 1)} below launch` : "logarithmic scale"}
-            </span>
+          {/* The axis is named. An unlabelled relative scale flatters. */}
+          <div
+            className={`${MONO} mt-2 flex items-center justify-between gap-2 px-2 text-[9px] uppercase tracking-wider text-slate-700`}
+          >
+            <span>{money(scale.lo)}</span>
+            <span className="truncate">scaled to the field, not the target</span>
+            <span>{money(scale.hi)}</span>
           </div>
+        </div>
+
+        {/* The million, demoted to a footnote where it belongs. */}
+        <div
+          className={`${MONO} mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[10px] uppercase tracking-wider text-slate-600`}
+        >
+          <span>
+            Combined <span className="text-slate-400">{money(challenge.total)}</span>
+          </span>
+          <span
+            className={netProfit > 0 ? "text-emerald-400" : netProfit < 0 ? "text-rose-400" : ""}
+          >
+            {signedMoney(netProfit)} since launch
+          </span>
+          <span>{percentPlain(challenge.total / CHALLENGE_TARGET, 3)} of target</span>
+          <span className="text-emerald-400">{challenge.alive} alive</span>
+          {challenge.liquidated > 0 ? (
+            <span className="text-rose-400">{challenge.liquidated} out</span>
+          ) : null}
         </div>
       </div>
     </section>
@@ -189,46 +407,174 @@ function Metric({ label, value, tone }) {
   );
 }
 
-function FighterCard({ fighter }) {
+function Record({ fighter }) {
   const f = fighter;
+  return (
+    <div className={`${MONO} flex items-center gap-3 text-[10px] uppercase tracking-wider`}>
+      <span className="text-emerald-400">{f.wins}W</span>
+      <span className="text-rose-400">{f.losses}L</span>
+      <span className="text-slate-500">{f.voids}V</span>
+      {f.pendingCount > 0 ? <span className="text-amber-400">{f.pendingCount} open</span> : null}
+    </div>
+  );
+}
+
+/**
+ * The daily meter, but only when there is something to meter. Five empty
+ * tracks all reading "EUR 0.00 / EUR 100.00" is five rows of nothing.
+ */
+function DailyBudget({ fighter }) {
+  const f = fighter;
+
+  if (!(f.stakedToday > 0)) {
+    return (
+      <p className={`${MONO} mt-4 text-[10px] uppercase tracking-wider text-slate-700`}>
+        No stake today · {money(f.dailyRemaining)} available
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between">
+        <p className={`${MONO} text-[9px] uppercase tracking-[0.14em] text-slate-600`}>
+          Daily budget
+        </p>
+        <p className={`${MONO} text-[10px] text-slate-500`}>
+          {money(f.stakedToday)} / {money(DAILY_LIMIT)}
+        </p>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
+        <div
+          className={
+            f.dailyUsedPct >= 100 ? "h-full rounded-full bg-rose-500" : "fx-fill h-full rounded-full"
+          }
+          style={{
+            width: `${Math.min(100, f.dailyUsedPct)}%`,
+            transition: "width .5s cubic-bezier(.16,1,.3,1)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Rank one. Full width, lit, and the only card allowed to move on its own. */
+function ChampionCard({ fighter, margin }) {
+  const f = fighter;
+  const streak = useStreak(f);
+  const animated = useCountUp(f.bankroll);
+  const flash = useFlash(f.bankroll);
 
   return (
     <article
-      className={`${GLASS} relative overflow-hidden p-5 transition ${
-        f.liquidated ? "grayscale-[0.6]" : "hover:border-white/20"
+      style={fighterVars(f.model)}
+      className={`fx-card fx-glow-lg relative overflow-hidden p-6 sm:p-7 ${
+        streak.state === "hot" ? "fx-hot" : streak.state === "cold" ? "fx-cold" : ""
+      } ${flash}`}
+    >
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-4">
+        <span className="fx-chip h-12 w-12 shrink-0 text-sm">{f.code}</span>
+
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="af-display text-2xl text-slate-50 sm:text-3xl">{f.model}</h3>
+            <span
+              className={`${MONO} rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-200`}
+            >
+              Leader
+            </span>
+            <StreakBadge streak={streak} />
+          </div>
+          <p className={`${MONO} text-[10px] uppercase tracking-[0.22em] text-slate-500`}>
+            {f.vendor}
+            {margin !== null && margin > 0 ? ` · ${money(margin)} clear` : ""}
+          </p>
+        </div>
+
+        <div className="ml-auto text-right">
+          <p className={`${MONO} text-[9px] uppercase tracking-[0.22em] text-slate-600`}>
+            Bankroll
+          </p>
+          <p className={`${MONO} text-4xl font-bold leading-none text-slate-50 sm:text-5xl`}>
+            {money(animated)}
+          </p>
+          <p
+            className={`${MONO} mt-1 text-xs ${
+              f.profit > 0 ? "text-emerald-400" : f.profit < 0 ? "text-rose-400" : "text-slate-500"
+            }`}
+          >
+            {signedMoney(f.profit)} all time
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-4 border-t border-white/10 pt-5 sm:grid-cols-4">
+        <Metric
+          label="ROI / yield"
+          value={percent(f.roi)}
+          tone={f.roi > 0 ? "up" : f.roi < 0 ? "down" : undefined}
+        />
+        <Metric label="Sharpe" value={ratio(f.sharpe)} tone={f.sharpe > 0 ? "up" : undefined} />
+        <Metric label="Max drawdown" value={percentPlain(f.maxDrawdown, 1)} tone="down" />
+        <Metric label="Win rate" value={percentPlain(f.winRate)} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2">
+        <Record fighter={f} />
+        <div className="min-w-[14rem] flex-1">
+          <DailyBudget fighter={f} />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/** Ranks two and below. Quieter: hairline rail at rest, identity on hover. */
+function ChallengerCard({ fighter, leader }) {
+  const f = fighter;
+  const streak = useStreak(f);
+  const animated = useCountUp(f.bankroll);
+  const flash = useFlash(f.bankroll);
+  const gap = leader ? f.bankroll - leader.bankroll : null;
+
+  return (
+    <article
+      style={fighterVars(f.model)}
+      className={`fx-term fx-press relative h-full overflow-hidden p-5 ${flash} ${
+        streak.state === "cold" ? "fx-cold" : ""
       }`}
     >
-      {/* Rank + identity */}
       <div className="flex items-center gap-3">
-        <span
-          className="flex h-9 w-9 items-center justify-center rounded-lg font-mono text-[11px] font-bold text-black"
-          style={{ backgroundColor: f.accent }}
-        >
-          {f.code}
-        </span>
+        <span className="fx-chip h-9 w-9 shrink-0 text-[11px]">{f.code}</span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-slate-100">{f.model}</p>
-          <p className={`${MONO} text-[10px] uppercase tracking-wider text-slate-600`}>{f.vendor}</p>
+          <p className={`${MONO} text-[10px] uppercase tracking-wider text-slate-600`}>
+            {f.vendor}
+          </p>
         </div>
         <span className={`${MONO} ml-auto text-xs text-slate-600`}>#{f.rank}</span>
       </div>
 
-      {/* Bankroll */}
       <div className="mt-5">
         <p className={`${MONO} text-[9px] uppercase tracking-[0.2em] text-slate-600`}>Bankroll</p>
-        <p className={`${MONO} text-2xl font-bold ${f.liquidated ? "text-rose-400" : "text-slate-50"}`}>
-          {money(f.bankroll)}
-        </p>
-        <p
-          className={`${MONO} text-xs ${
-            f.profit > 0 ? "text-emerald-400" : f.profit < 0 ? "text-rose-400" : "text-slate-500"
-          }`}
-        >
-          {signedMoney(f.profit)} all time
-        </p>
+        <p className={`${MONO} text-2xl font-bold text-slate-50`}>{money(animated)}</p>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <p
+            className={`${MONO} text-xs ${
+              f.profit > 0 ? "text-emerald-400" : f.profit < 0 ? "text-rose-400" : "text-slate-500"
+            }`}
+          >
+            {signedMoney(f.profit)}
+          </p>
+          {gap !== null && gap < 0 ? (
+            <p className={`${MONO} text-[10px] text-slate-600`}>
+              {money(Math.abs(gap))} behind
+            </p>
+          ) : null}
+        </div>
       </div>
 
-      {/* Live metrics */}
       <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/10 pt-4">
         <Metric
           label="ROI / yield"
@@ -240,51 +586,40 @@ function FighterCard({ fighter }) {
         <Metric label="Win rate" value={percentPlain(f.winRate)} />
       </div>
 
-      {/* Record */}
-      <div className={`${MONO} mt-3 flex gap-3 text-[10px] uppercase tracking-wider`}>
-        <span className="text-emerald-400">{f.wins}W</span>
-        <span className="text-rose-400">{f.losses}L</span>
-        <span className="text-slate-500">{f.voids}V</span>
-        {f.pendingCount > 0 ? (
-          <span className="ml-auto text-amber-400">{f.pendingCount} open</span>
-        ) : null}
+      <div className="mt-3 flex items-center gap-2">
+        <Record fighter={f} />
+        <span className="ml-auto">
+          <StreakBadge streak={streak} />
+        </span>
       </div>
 
-      {/* Daily budget meter */}
-      <div className="mt-4">
-        <div className="flex items-center justify-between">
-          <p className={`${MONO} text-[9px] uppercase tracking-[0.14em] text-slate-600`}>
-            Daily budget
-          </p>
-          <p className={`${MONO} text-[10px] text-slate-500`}>
-            {money(f.stakedToday)} / {money(DAILY_LIMIT)}
-          </p>
-        </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.min(100, f.dailyUsedPct)}%`,
-              backgroundColor: f.dailyUsedPct >= 100 ? "#f43f5e" : f.accent,
-            }}
-          />
-        </div>
-      </div>
-
-      {/* The graveyard state */}
-      {f.liquidated ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/65 px-3 backdrop-blur-[1px]">
-          {/* whitespace-nowrap and a size chosen to fit the narrowest card at
-              five-across: a stamp that wraps reads as a layout bug rather
-              than a verdict. */}
-          <span
-            className={`${MONO} whitespace-nowrap rotate-[-9deg] rounded border-2 border-rose-500/80 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-400`}
-          >
-            Liquidated{f.liquidatedRound ? ` [Round ${f.liquidatedRound}]` : ""}
-          </span>
-        </div>
-      ) : null}
+      <DailyBudget fighter={f} />
     </article>
+  );
+}
+
+/**
+ * The graveyard. One compressed row each, because a liquidated fighter
+ * occupying the same footprint as a live one implies they are still in it.
+ */
+function GraveyardRow({ fighter }) {
+  const f = fighter;
+  return (
+    <div
+      style={fighterVars(f.model)}
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-white/[0.06] bg-black/30 px-4 py-3 grayscale-[0.75]"
+    >
+      <span className="fx-chip h-7 w-7 shrink-0 text-[9px] opacity-70">{f.code}</span>
+      <span className="text-sm font-semibold text-slate-400">{f.model}</span>
+      <span
+        className={`${MONO} rotate-[-4deg] rounded border border-rose-500/50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-rose-400`}
+      >
+        Liquidated{f.liquidatedRound ? ` · Round ${f.liquidatedRound}` : ""}
+      </span>
+      <span className={`${MONO} ml-auto text-xs text-slate-600`}>
+        {f.wins}W {f.losses}L · {signedMoney(f.profit)}
+      </span>
+    </div>
   );
 }
 
@@ -347,19 +682,17 @@ function PickRow({ bet, sport }) {
           : "border-amber-400/30 bg-amber-400/10 text-amber-300";
 
   return (
-    <div className="rounded-lg border border-white/[0.07] bg-black/25">
+    <div
+      style={fighterVars(bet.model)}
+      className="rounded-lg border border-white/[0.07] bg-black/25"
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left transition hover:bg-white/[0.02]"
       >
-        <span
-          className="h-5 w-5 shrink-0 rounded text-center font-mono text-[9px] font-bold leading-5 text-black"
-          style={{ backgroundColor: meta.accent }}
-        >
-          {meta.code}
-        </span>
+        <span className="fx-chip h-5 w-5 shrink-0 text-[9px]">{meta.code}</span>
         <span className="text-sm text-slate-200">{bet.pick}</span>
         <span className={`${MONO} text-xs text-slate-500`}>@ {Number(bet.odds).toFixed(2)}</span>
         <span className={`${MONO} text-xs text-slate-600`}>{money(bet.stake)}</span>
@@ -408,7 +741,9 @@ function PickRow({ bet, sport }) {
 
             {bet.risk_factors ? (
               <>
-                <p className={`${MONO} mb-1.5 mt-3 text-[9px] uppercase tracking-[0.2em] text-amber-500/70`}>
+                <p
+                  className={`${MONO} mb-1.5 mt-3 text-[9px] uppercase tracking-[0.2em] text-amber-500/70`}
+                >
                   Risk factors
                 </p>
                 <p className={`${MONO} text-xs leading-relaxed text-amber-200/70`}>
@@ -447,7 +782,10 @@ function EventCard({ event, bets }) {
 
   return (
     <article className={`${GLASS} overflow-hidden`}>
-      <header className="border-b border-white/10 px-5 py-4" style={{ borderLeft: `3px solid ${accent}` }}>
+      <header
+        className="border-b border-white/10 px-5 py-4"
+        style={{ borderLeft: `3px solid ${accent}` }}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-base font-semibold text-slate-100">{event.event_name}</h3>
 
@@ -516,6 +854,12 @@ export default function Arena() {
   const { events, betsByEvent, fighters, challenge, loading, error, configured } = useArena();
   const [filter, setFilter] = useState("all");
 
+  const living = fighters.filter((f) => !f.liquidated);
+  const fallen = fighters.filter((f) => f.liquidated);
+  const champion = living[0] ?? null;
+  const challengers = living.slice(1);
+  const margin = living.length > 1 ? living[0].bankroll - living[1].bankroll : null;
+
   // Only fixtures anyone has actually bet on. An empty board is the
   // operator's problem, not something visitors should have to scroll past.
   const withPicks = events.filter((e) => (betsByEvent.get(e.id) ?? []).length > 0);
@@ -528,19 +872,43 @@ export default function Arena() {
         : withPicks.filter((e) => (betsByEvent.get(e.id) ?? []).every((b) => b.result));
 
   return (
-    <div className="min-h-screen bg-[#050508] text-slate-200 antialiased">
-      <ChallengeTracker challenge={challenge} />
+    <div className="min-h-screen text-slate-200 antialiased">
+      <RaceTracker fighters={fighters} challenge={challenge} />
 
       {/* Fighters */}
       <section className="mx-auto max-w-7xl px-4 pb-14">
         <h2 className={`${MONO} mb-4 text-[10px] uppercase tracking-[0.3em] text-slate-500`}>
           The Fighters
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {fighters.map((f) => (
-            <FighterCard key={f.model} fighter={f} />
-          ))}
-        </div>
+
+        {champion ? (
+          <Reveal>
+            <ChampionCard fighter={champion} margin={margin} />
+          </Reveal>
+        ) : null}
+
+        {challengers.length > 0 ? (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {challengers.map((f, i) => (
+              <Reveal key={f.model} delay={i * 70} className="h-full">
+                <ChallengerCard fighter={f} leader={champion} />
+              </Reveal>
+            ))}
+          </div>
+        ) : null}
+
+        {fallen.length > 0 ? (
+          <div className="mt-6">
+            <p className={`${MONO} mb-2 text-[10px] uppercase tracking-[0.3em] text-slate-700`}>
+              Out
+            </p>
+            <div className="space-y-2">
+              {fallen.map((f) => (
+                <GraveyardRow key={f.model} fighter={f} />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* Board */}
@@ -559,7 +927,7 @@ export default function Arena() {
                 key={t.key}
                 type="button"
                 onClick={() => setFilter(t.key)}
-                className={`${MONO} rounded border px-2.5 py-1 text-[10px] uppercase tracking-wider transition ${
+                className={`${MONO} fx-press rounded border px-2.5 py-1 text-[10px] uppercase tracking-wider transition ${
                   filter === t.key
                     ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300"
                     : "border-white/10 text-slate-500 hover:border-white/25 hover:text-slate-300"
@@ -576,10 +944,10 @@ export default function Arena() {
             <p className="text-sm text-rose-300">The site is not connected to its database.</p>
           </div>
         ) : loading ? (
-          <div className={`${GLASS} p-8 text-center`}>
-            <p className={`${MONO} text-xs uppercase tracking-[0.25em] text-slate-600`}>
-              Loading board
-            </p>
+          <div className="space-y-3">
+            <div className="fx-skeleton h-28 w-full" />
+            <div className="fx-skeleton h-28 w-full" />
+            <div className="fx-skeleton h-28 w-full" />
           </div>
         ) : error ? (
           <div className={`${GLASS} p-8 text-center`}>
@@ -595,8 +963,10 @@ export default function Arena() {
           </div>
         ) : (
           <div className="space-y-5">
-            {shown.map((event) => (
-              <EventCard key={event.id} event={event} bets={betsByEvent.get(event.id) ?? []} />
+            {shown.map((event, i) => (
+              <Reveal key={event.id} delay={Math.min(i, 4) * 60}>
+                <EventCard event={event} bets={betsByEvent.get(event.id) ?? []} />
+              </Reveal>
             ))}
           </div>
         )}

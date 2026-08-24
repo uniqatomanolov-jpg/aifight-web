@@ -17,7 +17,7 @@
   --fx-accent: #64748b;
   --fx-glow: rgba(100, 116, 139, 0.4);
 
-  --fx-surface: #050508;
+  --fx-surface: #0A0B0F;
   --fx-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -220,4 +220,116 @@
   .fx-press:hover,
   .fx-card:hover { transform: none; }
   .fx-flash-up, .fx-flash-down { animation-duration: 0.01ms; }
+}
+
+
+/* ===========================================================================
+   Trading-terminal card treatment.
+
+   Resting state is a hairline of the fighter's colour at low alpha -- present
+   but not competing. The full 1px brand border and its glow arrive on hover,
+   so at rest the grid reads as one surface and only the row under the cursor
+   asserts an identity.
+   =========================================================================== */
+.fx-term {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 0.875rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.028), rgba(255,255,255,0.008));
+  transition: border-color .22s var(--fx-ease), box-shadow .22s var(--fx-ease),
+              transform .22s var(--fx-ease), background-color .22s var(--fx-ease);
+}
+.fx-term:hover {
+  border-color: color-mix(in srgb, var(--fx-accent) 62%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fx-accent) 18%, transparent),
+              0 0 34px -16px var(--fx-glow);
+  transform: translateY(-1px);
+}
+.fx-term:focus-visible {
+  border-color: var(--fx-accent);
+  outline: none;
+}
+
+/* Left identity rail, 2px, always on: enough to tell rows apart at a glance
+   without lighting five borders at once. */
+.fx-term::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  border-radius: 0.875rem 0 0 0.875rem;
+  background: linear-gradient(180deg, var(--fx-from), var(--fx-to));
+  opacity: .55;
+  transition: opacity .22s var(--fx-ease);
+}
+.fx-term:hover::before { opacity: 1; }
+
+/* Every figure in the app: same width per digit, so columns align and a
+   changing number does not shift the ones beside it. */
+.tabular, .font-mono {
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* Compact qualification pill, replacing the old full progress block. */
+.fx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  padding: .1875rem .5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.fx-pill-track {
+  position: relative;
+  width: 26px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  overflow: hidden;
+}
+.fx-pill-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--fx-from), var(--fx-to));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-term:hover { transform: none; }
+}
+
+/* ===========================================================================
+   Display voice.
+
+   Archivo on its width axis. Inter (the previous body face) is technically
+   excellent and completely characterless -- it is the default of the whole
+   2020s startup web, which is why the page read as a dashboard rather than
+   an arena. The display face carries the attitude; Space Grotesk carries the
+   UI; JetBrains Mono carries every figure.
+
+   font-stretch is the load-bearing property here. Without it the browser
+   serves Archivo at its default width and the headline loses the widescreen
+   weight that makes it read as a title card.
+   =========================================================================== */
+.af-display {
+  font-family: "Archivo", "Archivo Black", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  font-stretch: 118%;
+  font-variation-settings: "wdth" 118, "wght" 800;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+/* Static fallback: if the variable font fails to load, a heavy static weight
+   still reads as a headline rather than reverting to body copy. */
+@supports not (font-variation-settings: "wdth" 118) {
+  .af-display { font-weight: 900; letter-spacing: -0.02em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .af-display { text-wrap: balance; }
 }
