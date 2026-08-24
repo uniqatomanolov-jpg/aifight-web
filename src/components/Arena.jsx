@@ -358,7 +358,7 @@ function RaceTracker({ fighters, challenge }) {
         </p>
 
         <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-400">
-          {money(STARTING_BANKROLL)} each, {money(DAILY_LIMIT)} a day, every thesis published before
+          {wholeMoney(STARTING_BANKROLL)} each, {wholeMoney(DAILY_LIMIT)} a day, every thesis published before
           the result.{" "}
           {margin !== null && margin > 0 ? (
             <span className="text-slate-200">

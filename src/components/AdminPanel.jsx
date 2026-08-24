@@ -54,12 +54,24 @@ import {
 /* -------------------------------------------------------------------- */
 
 const CARD = "rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-sm";
+/*
+ * Field sizing is deliberate, not incidental.
+ *
+ * text-base (16px) rather than text-sm: this form is used at speed, often on
+ * a phone, and every value in it is a number that must be read back before it
+ * is committed. 16px is also the threshold below which iOS Safari zooms the
+ * viewport on focus, which throws the operator out of the layout mid-entry.
+ *
+ * The label is 11px and slate-400 rather than 10px and slate-500 -- an
+ * operator who cannot tell which box is Odds and which is Stake will put the
+ * stake in the odds field eventually.
+ */
 const INPUT =
-  "w-full rounded-lg border border-white/10 bg-[#0a0a10] px-3 py-2 text-sm text-slate-100 " +
+  "w-full rounded-lg border border-white/10 bg-[#0a0a10] px-3.5 py-2.5 text-base text-slate-100 " +
   "placeholder:text-slate-600 outline-none transition focus:border-emerald-400/60 " +
   "focus:ring-2 focus:ring-emerald-400/20 disabled:opacity-40";
 const LABEL =
-  "mb-1 block font-mono text-[10px] uppercase tracking-[0.14em] text-slate-500";
+  "mb-1.5 block font-mono text-[11px] uppercase tracking-[0.14em] text-slate-400";
 
 function Field({ label, hint, children }) {
   return (
