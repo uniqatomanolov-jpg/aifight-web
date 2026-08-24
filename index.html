@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#050508" />
+    <title>AiFight — The €1,000,000 Challenge</title>
+    <meta
+      name="description"
+      content="Five AI models, €1,000 each, one daily limit. Every stake, price and thesis published."
+    />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      BOOT GUARD. Installed before the bundle so it can catch module-eval
+      failures, which happen before React exists and which an error boundary
+      therefore cannot see. Renders the error on screen instead of leaving a
+      black page. Remove nothing here without replacing the diagnostics.
+    -->
+    <script>
+      (function () {
+        var shown = false;
+        function esc(s) {
+          return String(s == null ? "" : s).replace(/[&<>]/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+          });
+        }
+        function panel(title, detail, stack) {
+          if (shown) return;
+          shown = true;
+          var root = document.getElementById("root") || document.body;
+          root.innerHTML =
+            '<div style="min-height:100vh;background:#150507;color:#fff;' +
+            'font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;padding:24px">' +
+            '<div style="max-width:960px;margin:0 auto;border:1px solid #f43f5e;' +
+            'border-radius:12px;overflow:hidden">' +
+            '<div style="background:#f43f5e;color:#1a0308;padding:10px 16px;' +
+            'font-weight:700;letter-spacing:.08em;text-transform:uppercase">' +
+            esc(title) +
+            "</div>" +
+            '<div style="padding:16px">' +
+            '<p style="margin:0 0 12px;color:#fecdd3">' +
+            esc(detail) +
+            "</p>" +
+            (stack
+              ? '<pre style="white-space:pre-wrap;word-break:break-word;margin:0;' +
+                'padding:12px;background:#0b0204;border:1px solid #7f1d1d;' +
+                'border-radius:8px;color:#fda4af;font-size:12px">' +
+                esc(stack) +
+                "</pre>"
+              : "") +
+            '<p style="margin:14px 0 0;color:#94a3b8;font-size:12px">' +
+            "Supabase target: " +
+            esc(
+              (window.__AIFIGHT_RESOLVED__ && window.__AIFIGHT_RESOLVED__.url) ||
+                "not resolved"
+            ) +
+            " (" +
+            esc(
+              (window.__AIFIGHT_RESOLVED__ &&
+                window.__AIFIGHT_RESOLVED__.source) ||
+                "bundle never evaluated"
+            ) +
+            ")</p>" +
+            "</div></div></div>";
+        }
+
+        // Called by the React error boundary inside the bundle.
+        window.__aifightCrash = function (error, componentStack) {
+          panel(
+            "Render error",
+            (error && error.message) || String(error),
+            ((error && error.stack) || "") + (componentStack || "")
+          );
+        };
+
+        window.addEventListener("error", function (e) {
+          if (e && e.target && e.target.tagName === "SCRIPT") {
+            panel(
+              "Script failed to load",
+              "The browser could not fetch " + (e.target.src || "a script") + ".",
+              "Check that /assets uploaded intact and that the deployed folder " +
+                "root contains index.html next to assets/."
+            );
+            return;
+          }
+          panel(
+            "Startup error",
+            (e && e.message) || "A script threw before the app could mount.",
+            e && e.error && e.error.stack
+          );
+        }, true);
+
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e && e.reason;
+          panel(
+            "Chunk load error",
+            (r && r.message) || "A dynamic import was rejected.",
+            r && r.stack
+          );
+        });
+
+        // Watchdog: nothing threw, but nothing rendered either.
+        window.addEventListener("DOMContentLoaded", function () {
+          setTimeout(function () {
+            var root = document.getElementById("root");
+            if (!root || root.children.length > 0) return;
+            panel(
+              "App did not mount",
+              "The bundle loaded without throwing, but rendered nothing after " +
+                "10 seconds. This is usually the Supabase project being " +
+                "unreachable (paused free-tier project, wrong project ref) " +
+                "rather than a code fault.",
+              "Open the console and the network tab; a request to the Supabase " +
+                "host above will be failing."
+            );
+          }, 10000);
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
