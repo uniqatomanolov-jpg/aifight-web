@@ -16,6 +16,7 @@ import {
   dayKey,
   STARTING_BANKROLL,
   DAILY_LIMIT,
+  hasDailyLimit,
 } from "../src/lib/engine.js";
 
 import {
@@ -192,7 +193,9 @@ test("the daily budget counts only today's stakes, in the arena timezone", () =>
     { today }
   );
   assert.equal(s.stakedToday, 30);
-  assert.equal(s.dailyRemaining, DAILY_LIMIT - 30);
+  // stakedToday is still tracked for display; what may be staked next is
+  // bounded by uncommitted funds, not by the day.
+  assert.equal(s.dailyRemaining, s.available);
 });
 
 test("standings rank the living above the liquidated", () => {
@@ -294,18 +297,31 @@ test("a well-formed pick passes", () => {
   assert.deepEqual(validatePick(validDraft, { standing, existingBets: [] }), []);
 });
 
-test("a stake above the daily limit is refused", () => {
+test("with no cap in force, a large stake is allowed", () => {
+  assert.equal(hasDailyLimit, false, "this suite assumes the uncapped configuration");
   const standing = standingFor("Claude", []);
-  const problems = validatePick({ ...validDraft, stake: "150" }, { standing });
-  assert.ok(problems.some((p) => p.includes("daily limit")));
+  const problems = validatePick({ ...validDraft, stake: "900" }, { standing });
+  assert.deepEqual(problems, [], "900 of a 1000 bankroll is the fighter's own call");
 });
 
-test("a stake beyond what is left today is refused", () => {
+test("a stake beyond uncommitted funds is still refused", () => {
+  // The floor that survives the cap removal: money already riding on open
+  // bets cannot be staked a second time.
   const standing = standingFor("Claude", [
-    bet({ stake: 80, logged_at: new Date().toISOString() }),
+    bet({ stake: 900, result: null, logged_at: new Date().toISOString() }),
   ]);
-  const problems = validatePick({ ...validDraft, stake: "50" }, { standing });
-  assert.ok(problems.some((p) => p.includes("left in")));
+  assert.equal(standing.pendingStake, 900);
+  assert.equal(standing.available, 100);
+  const problems = validatePick({ ...validDraft, stake: "500" }, { standing });
+  assert.ok(problems.some((p) => p.includes("uncommitted")), problems.join(" | "));
+});
+
+test("exposure reports how much of the bankroll is riding on open bets", () => {
+  const standing = standingFor("Claude", [
+    bet({ stake: 250, result: null, logged_at: new Date().toISOString() }),
+  ]);
+  assert.equal(standing.exposure, 0.25);
+  assert.equal(standing.dailyUsedPct, null, "no denominator when uncapped");
 });
 
 test("a liquidated fighter cannot bet", () => {

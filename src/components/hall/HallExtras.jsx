@@ -137,34 +137,42 @@ export function AwardRulesTip() {
    missing metric or a missing opponent.
    =========================================================================== */
 
-export function SampleProgress({ rows = [], award }) {
+export function QualificationPills({ rows = [], award }) {
+  // Compact by design. The old full-width bar per model turned a vacant award
+  // into the tallest thing on the page, which inverted the hierarchy: the
+  // awards nobody has won were shouting louder than the ones somebody had.
+  // Same information, one line each.
   return (
-    <div className="space-y-2.5">
+    <div className="flex flex-wrap gap-1.5">
       {rows.map((row) => {
         const q = qualificationFor(row, award, rows);
         const meta = fighter(row.model);
-        const done = q.state === "eligible";
+        const blocked = q.state === "metric" || q.state === "contested";
         return (
-          <div key={row.model} style={fighterVars(row.model)} className="flex items-center gap-3">
-            <span className="fx-chip h-7 w-7 font-mono text-[10px]">{meta.code}</span>
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 flex items-baseline justify-between gap-2">
-                <span className="truncate text-xs font-medium text-slate-300">{row.model}</span>
-                <span className="font-mono text-[11px] tabular-nums text-slate-500">
+          <span
+            key={row.model}
+            title={q.reason}
+            style={fighterVars(row.model)}
+            className="fx-pill font-mono uppercase text-slate-400"
+          >
+            <span className="fx-text font-bold">{meta.code}</span>
+            {q.state === "eligible" ? (
+              <span className="text-emerald-300">in</span>
+            ) : blocked ? (
+              <span className="text-slate-600" aria-label={q.reason}>
+                held
+              </span>
+            ) : (
+              <>
+                <span className="fx-pill-track">
+                  <span className="fx-pill-fill" style={{ width: `${Math.round(q.progress * 100)}%` }} />
+                </span>
+                <span className="tabular text-slate-500">
                   {q.settled}/{q.minSample}
                 </span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    done ? "bg-emerald-400" : "fx-fill"
-                  }`}
-                  style={{ width: `${Math.round(q.progress * 100)}%` }}
-                />
-              </div>
-              <p className="mt-1 font-mono text-[10px] leading-tight text-slate-600">{q.reason}</p>
-            </div>
-          </div>
+              </>
+            )}
+          </span>
         );
       })}
     </div>
@@ -184,9 +192,7 @@ export function AwardCard({ award, winner, rows = [] }) {
 
   return (
     <article
-      className={`relative overflow-hidden rounded-2xl border bg-white/[0.03] p-5 transition duration-300 hover:-translate-y-0.5 ${
-        held ? t.ring : "border-white/[0.08]"
-      }`}
+      className={`fx-term relative overflow-hidden p-5 ${held ? t.ring : ""}`}
       style={{ boxShadow: held ? `0 0 42px -18px ${t.glow}` : `0 0 30px -22px ${t.glow}` }}
     >
       {/* Tone wash, strongest at the top edge. Keeps vacant cards from
@@ -224,10 +230,10 @@ export function AwardCard({ award, winner, rows = [] }) {
         </div>
       ) : (
         <div className="relative mt-4">
-          <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
-            Nobody qualifies yet
+          <p className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">
+            Vacant
           </p>
-          <SampleProgress rows={rows} award={award} />
+          <QualificationPills rows={rows} award={award} />
         </div>
       )}
 

@@ -695,7 +695,7 @@ const EMPTY_ROW = {
  * price stays editable because the operator sometimes gets a better one
  * than the board.
  */
-function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
+function FighterRow({ model, event, standing, standings, existingBets, onToast, reload }) {
   const [row, setRow] = useState(EMPTY_ROW);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -733,8 +733,9 @@ function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
     }
     setBusy(true);
 
-    let prob = row.fair_prob === "" ? null : toNumber(row.fair_prob);
-    if (prob !== null && prob > 1) prob = prob / 100; // operators type both
+    // Same function validatePick used, so the form cannot approve a value the
+    // database will then refuse. Returns null for anything unpriceable.
+    const prob = normaliseProbability(row.fair_prob);
 
     const { error } = await supabase.from("bets").insert({
       event_id: event.id,
@@ -807,12 +808,14 @@ function FighterRow({ model, event, standing, existingBets, onToast, reload }) {
             model={model}
             event={event}
             standing={standing}
+            standings={standings}
             disabled={locked}
             onApply={(r) =>
               set({
                 market: r.market,
                 pick: r.pick,
                 odds: r.odds === "" ? "" : String(r.odds),
+                stake: r.stake === "" ? "" : String(r.stake),
                 fair_prob: r.fair_prob === "" ? "" : String(r.fair_prob),
                 confidence: r.confidence === "" ? "" : String(r.confidence),
                 reasoning: r.reasoning,
@@ -1158,6 +1161,7 @@ function Dispatcher({ events, betsByEvent, fighters, onToast, reload }) {
                       model={model}
                       event={event}
                       standing={byModel[model]}
+                      standings={fighters}
                       existingBets={eventBets}
                       onToast={onToast}
                       reload={reload}

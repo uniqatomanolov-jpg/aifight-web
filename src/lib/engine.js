@@ -75,6 +75,34 @@ export const STARTING_BANKROLL = 1000;
  */
 export const DAILY_LIMIT = null;
 
+/**
+ * The date the challenge opened, ISO yyyy-mm-dd.
+ *
+ * Exists so that no copy anywhere has to say "last week". A hardcoded phrase
+ * is true for about six days and then quietly starts lying -- including
+ * inside the prompts handed to the models, which is the worst place for a
+ * false premise to live. Everything that needs elapsed time derives it here.
+ *
+ * SET THIS TO THE REAL LAUNCH DATE. The default below is a placeholder.
+ */
+export const CHALLENGE_LAUNCH = "2026-08-17";
+
+/** Whole days since launch, floored at 0. */
+export function daysSinceLaunch(now = new Date(), launch = CHALLENGE_LAUNCH) {
+  const start = new Date(`${launch}T00:00:00Z`).getTime();
+  const then = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(then)) return 0;
+  return Math.max(0, Math.floor((then - start) / 86_400_000));
+}
+
+/** "day 3" / "week 2, day 9" -- for prose, never for arithmetic. */
+export function elapsedLabel(now = new Date()) {
+  const days = daysSinceLaunch(now);
+  if (days < 1) return "day one";
+  if (days < 7) return `day ${days + 1}`;
+  return `week ${Math.floor(days / 7) + 1}, day ${days + 1}`;
+}
+
 export const hasDailyLimit = Number.isFinite(DAILY_LIMIT) && DAILY_LIMIT > 0;
 export const CHALLENGE_TARGET = 1_000_000;
 
@@ -101,8 +129,55 @@ export function round2(n) {
 }
 
 export function toNumber(value, fallback = 0) {
-  const n = typeof value === "string" ? Number(value.replace(",", ".")) : Number(value);
+  if (typeof value !== "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  // Everything an operator actually types. A stray % or currency symbol used
+  // to fall through to the fallback of 0, and a 0 stake or 0 odds is not a
+  // harmless default -- it is a CHECK violation the database reports as an
+  // unhelpful "inconsistent numbers" error several layers away from the typo.
+  let raw = value.trim().replace(/[%\s\u00A0€$£]/g, "");
+  if (raw === "") return fallback;
+
+  const hasComma = raw.includes(",");
+  const hasDot = raw.includes(".");
+  if (hasComma && hasDot) {
+    // "1,234.50" -- comma is a thousands separator.
+    // "1.234,50" -- the European form, dot is the separator.
+    raw =
+      raw.lastIndexOf(",") > raw.lastIndexOf(".")
+        ? raw.replace(/\./g, "").replace(",", ".")
+        : raw.replace(/,/g, "");
+  } else if (hasComma) {
+    // A lone comma is a decimal point on most European keyboards, except
+    // when it is clearly grouping: "1,000".
+    raw = /,\d{3}$/.test(raw) ? raw.replace(/,/g, "") : raw.replace(",", ".");
+  }
+
+  const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * A probability, however it was typed, or null.
+ *
+ * Accepts 0.55, .55, 55 and 55%. Returns null for anything that cannot be a
+ * price: zero, one, and any value that ROUNDS to zero or one at the column's
+ * five decimal places, because `fair_prob numeric(6,5)` stores 0.999996 as
+ * 1.00000 and `check (fair_prob < 1)` then rejects the insert.
+ *
+ * Single source of truth: validatePick and the admin's insert both call this,
+ * so the form can no longer approve a value the database will refuse.
+ */
+export function normaliseProbability(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const n = toNumber(value, NaN);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const p = n > 1 ? n / 100 : n;
+  const stored = Number(p.toFixed(5));
+  return stored > 0 && stored < 1 ? stored : null;
 }
 
 /**
@@ -639,10 +714,18 @@ export function validatePick(draft, { standing, existingBets = [] } = {}) {
   if (!draft.market) problems.push("Pick a market.");
   if (!draft.pick) problems.push("Pick a selection.");
 
-  if (!(odds > 1)) problems.push("Odds must be greater than 1.00.");
+  // Validate the value the DATABASE will hold, not the one in the box.
+  // `odds` is numeric(10,3), so Postgres rounds to three decimals and only
+  // then applies `check (odds > 1)`. 1.0004 passes an unrounded `> 1` here and
+  // is rejected on insert as 1.000 -- a client-side rule that lets through
+  // rows the database refuses is worse than no rule, because the operator
+  // gets an opaque constraint error instead of a fixable message.
+  const storedOdds = Number(odds.toFixed(3));
+  if (!(storedOdds > 1)) problems.push("Odds must be greater than 1.00.");
   if (odds > 1000) problems.push("Odds above 1000 are almost certainly a typo.");
 
-  if (!(stake > 0)) problems.push("Stake must be greater than zero.");
+  // numeric(10,2): a stake of 0.004 stores as 0.00 and trips `check (stake > 0)`.
+  if (!(Number(stake.toFixed(2)) > 0)) problems.push("Stake must be greater than zero.");
   if (hasDailyLimit && stake > DAILY_LIMIT) {
     problems.push(`Stake exceeds the €${DAILY_LIMIT} daily limit.`);
   }
@@ -659,10 +742,12 @@ export function validatePick(draft, { standing, existingBets = [] } = {}) {
     }
   }
 
-  if (prob !== null) {
-    // Accept either a probability or a percentage -- operators type both.
-    const p = prob > 1 ? prob / 100 : prob;
-    if (!(p > 0 && p < 1)) problems.push("Probability must be between 0 and 1 (or 1-99%).");
+  const rawProb = String(draft.fair_prob ?? "").trim();
+  if (rawProb !== "" && normaliseProbability(rawProb) === null) {
+    problems.push(
+      "Probability must be strictly between 0 and 1. Type 0.55, 55 or 55%. " +
+        "Exactly 0, 1 or 100 means certainty and cannot be priced -- use 1 or 99."
+    );
   }
 
   const thesis = String(draft.reasoning ?? "").trim();

@@ -9,13 +9,11 @@ import { buildPickPrompt, marketsFromEvent, parsePickReply } from "../lib/pickPr
  * back, and the parsed pick fills the row below. The operator still presses
  * Log; nothing here writes to the database.
  *
- * WHAT THIS PANEL DELIBERATELY WILL NOT DO
- * ----------------------------------------
- * It never fills `stake`, and it never overwrites `odds` with anything the
- * model said. Stake is bounded by a daily ceiling the model cannot see, and
- * the price is whatever the book is actually offering -- both are the
- * operator's call. A model that returns "odds": 9.99 gets that value dropped
- * by the parser, not written to the form. See src/lib/pickPrompt.js.
+ * The model fills everything, including the stake -- it sees its own bankroll
+ * and the standings, and sizing is its call. The one field it cannot set is
+ * `odds`: a price is what the book is offering, not a judgement, so a model
+ * returning "odds": 9.99 gets that value dropped by the parser rather than
+ * written to the form. See src/lib/pickPrompt.js.
  */
 
 const BTN =
@@ -23,7 +21,14 @@ const BTN =
   "tracking-[0.12em] text-slate-400 transition hover:border-white/30 hover:text-slate-100 " +
   "disabled:opacity-40 disabled:hover:border-white/12";
 
-export default function PickPromptPanel({ model, event, standing, disabled, onApply }) {
+export default function PickPromptPanel({
+  model,
+  event,
+  standing,
+  standings = null,
+  disabled,
+  onApply,
+}) {
   const [open, setOpen] = useState(false);
   const [reply, setReply] = useState("");
   const [warnings, setWarnings] = useState([]);
@@ -38,8 +43,9 @@ export default function PickPromptPanel({ model, event, standing, disabled, onAp
         model,
         bankroll: standing?.bankroll ?? null,
         dailyRemaining: standing?.dailyRemaining ?? null,
+        standings,
       }),
-    [event, markets, model, standing?.bankroll, standing?.dailyRemaining]
+    [event, markets, model, standing?.bankroll, standing?.dailyRemaining, standings]
   );
 
   async function copy() {
@@ -56,7 +62,10 @@ export default function PickPromptPanel({ model, event, standing, disabled, onAp
   }
 
   function read() {
-    const result = parsePickReply(reply, { markets });
+    const result = parsePickReply(reply, {
+      markets,
+      available: standing?.dailyRemaining ?? null,
+    });
     setParsed(result.rows);
     setWarnings(result.warnings);
     if (result.rows.length === 1) {
@@ -130,6 +139,9 @@ export default function PickPromptPanel({ model, event, standing, disabled, onAp
                 >
                   <span>{r.pick}</span>
                   <span className="font-mono text-[11px] text-slate-500">@ {r.odds}</span>
+                  {r.stake !== "" ? (
+                    <span className="font-mono text-[11px] text-emerald-400">€{r.stake}</span>
+                  ) : null}
                   {r.fair_prob !== "" ? (
                     <span className="ml-auto font-mono text-[11px] text-slate-500">
                       p {r.fair_prob}

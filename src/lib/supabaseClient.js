@@ -126,7 +126,32 @@ export function describeError(error) {
 
   // The two failures that actually happen in this app, named properly.
   if (code === "23505") return "That exact bet is already logged for this fighter.";
-  if (code === "23514") return "The database rejected those numbers as inconsistent.";
+  // 23514 is check_violation. Postgres names the constraint it rejected, and
+  // that name is the entire diagnostic value of the error -- collapsing all of
+  // them into one sentence leaves the operator (and the logs) with nothing to
+  // act on. Each constraint gets the sentence that says what to change.
+  if (code === "23514") {
+    const detail = `${error.message ?? ""} ${error.details ?? ""}`;
+    if (detail.includes("bets_prob_check")) {
+      return "Probability must sit strictly between 0 and 1. Exactly 0, exactly 1, " +
+        "or a value that rounds to either at 5 decimal places is rejected.";
+    }
+    if (detail.includes("bets_odds_check")) {
+      return "Odds must be above 1.000. Anything that rounds to 1.000 at three " +
+        "decimal places is rejected.";
+    }
+    if (detail.includes("bets_stake_check")) return "Stake must be above zero.";
+    if (detail.includes("bets_model_check")) {
+      return "That fighter name is not one of the five.";
+    }
+    if (detail.includes("bets_payout_check")) {
+      return "The payout and profit do not match stake x odds for that result.";
+    }
+    if (detail.includes("events_sport_check")) return "That sport is not in the allowed list.";
+    if (detail.includes("events_status_check")) return "That event status is not allowed.";
+    // Unknown constraint: show the raw message rather than swallow it.
+    return `The database rejected those numbers: ${error.message ?? "unknown constraint"}`;
+  }
   if (code === "42501" || error.message?.includes("row-level security")) {
     return "Not signed in, or this account has no write permission.";
   }
