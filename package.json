@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/preflight.mjs && vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "lint": "eslint src tests",
-    "verify": "npm run lint && npm test && npm run build"
+    "verify": "npm run lint && npm test && npm run build",
+    "preflight": "node scripts/preflight.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

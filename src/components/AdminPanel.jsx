@@ -21,6 +21,7 @@ import {
   expectedValue,
   impliedProbability,
   toNumber,
+  normaliseProbability,
   money,
   signedMoney,
   percent,
@@ -360,7 +361,10 @@ function MatchBoard({ events, onToast, reload }) {
     if (events.length > 0) {
       setRound(Math.max(...events.map((e) => e.round ?? 1)));
     }
-  }, [events.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Intentionally keyed on the count alone: this seeds the round selector
+    // once the fixture list arrives and must not fight the operator by
+    // resetting every time an event object is replaced by a refetch.
+  }, [events.length]);
 
   const entrants = useMemo(
     () =>

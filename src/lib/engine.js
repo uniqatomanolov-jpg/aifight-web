@@ -707,7 +707,6 @@ export function validatePick(draft, { standing, existingBets = [] } = {}) {
   const problems = [];
   const stake = toNumber(draft.stake);
   const odds = toNumber(draft.odds);
-  const prob = draft.fair_prob === "" || draft.fair_prob == null ? null : toNumber(draft.fair_prob);
 
   if (!draft.model) problems.push("Pick a fighter.");
   if (!draft.event_id) problems.push("Pick a fixture.");
